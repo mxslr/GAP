@@ -101,7 +101,7 @@ export default async function HistoryPage({ searchParams }: PageProps) {
           {dbError ? (
             <div className="border border-border-default p-8 text-center">
               <p
-                className="font-mono text-sm text-fg-tertiary lowercase"
+                className="font-mono text-sm text-fg-secondary lowercase"
                 style={{ letterSpacing: '0.08em' }}
               >
                 database unavailable — history cannot be loaded
@@ -110,7 +110,7 @@ export default async function HistoryPage({ searchParams }: PageProps) {
           ) : analyses.length === 0 ? (
             <div className="border border-border-default p-12 text-center flex flex-col gap-4">
               <p
-                className="font-mono text-sm text-fg-tertiary lowercase"
+                className="font-mono text-sm text-fg-secondary lowercase"
                 style={{ letterSpacing: '0.08em' }}
               >
                 no history yet.
@@ -150,7 +150,7 @@ export default async function HistoryPage({ searchParams }: PageProps) {
 
         {analyses.length > 0 && (
           <p
-            className="font-mono text-xs text-fg-tertiary lowercase animate-fade-in"
+            className="font-mono text-xs text-fg-secondary lowercase animate-fade-in"
             style={{ animationDelay: '180ms', animationFillMode: 'both', letterSpacing: '0.05em' }}
           >
             showing {analyses.length}{' '}

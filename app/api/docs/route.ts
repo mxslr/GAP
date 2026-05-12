@@ -3,20 +3,46 @@ import { randomUUID } from 'crypto'
 import { parseBackendRoutes } from '../../../lib/parsers/backend'
 import { classifyFeatures } from '../../../lib/analyzer/feature-classifier'
 import { generateApiDocs } from '../../../lib/generators/api-docs'
+import { fetchGithubRepo } from '../../../lib/repo/github-fetcher'
 import { prisma } from '../../../lib/db'
-import type { AnalyzedRoute } from '../../../lib/types'
+import type { AnalyzedRoute, FileEntry } from '../../../lib/types'
 
 export const maxDuration = 90
+
+function filesToCode(files: FileEntry[]): string {
+  return files.map((f) => `// === FILE: ${f.path} ===\n${f.content}`).join('\n\n')
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
+    const inputMethod: string = body?.inputMethod ?? 'paste'
 
-    if (!body?.backendCode || typeof body.backendCode !== 'string' || body.backendCode.trim() === '') {
-      return NextResponse.json({ error: 'backendCode is required' }, { status: 400 })
+    let backendCode: string
+
+    if (inputMethod === 'github') {
+      if (!body?.backendGithubUrl || typeof body.backendGithubUrl !== 'string') {
+        return NextResponse.json({ error: 'backendGithubUrl is required for github input method' }, { status: 400 })
+      }
+      try {
+        const content = await fetchGithubRepo(body.backendGithubUrl as string)
+        backendCode = filesToCode(content.files)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'GitHub fetch failed'
+        if (msg.includes('rate limit')) {
+          return NextResponse.json({ error: msg, code: 'GITHUB_RATE_LIMIT' }, { status: 429 })
+        }
+        if (msg.includes('Private repo')) {
+          return NextResponse.json({ error: msg, code: 'GITHUB_PRIVATE_REPO' }, { status: 400 })
+        }
+        return NextResponse.json({ error: msg, code: 'GITHUB_FETCH_ERROR' }, { status: 502 })
+      }
+    } else {
+      if (!body?.backendCode || typeof body.backendCode !== 'string' || body.backendCode.trim() === '') {
+        return NextResponse.json({ error: 'backendCode is required' }, { status: 400 })
+      }
+      backendCode = body.backendCode as string
     }
-
-    const backendCode: string = body.backendCode
 
     const backendRoutes = await parseBackendRoutes(backendCode)
 

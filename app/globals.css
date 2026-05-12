@@ -40,6 +40,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Text readability utilities */
+.text-readable { color: var(--fg-secondary); }
+.text-primary   { color: var(--fg-primary); }
+.text-hint      { color: var(--fg-tertiary); }
+
 /* Staggered fade-in utility classes */
 .animate-delay-100 { animation-delay: 100ms; }
 .animate-delay-200 { animation-delay: 200ms; }

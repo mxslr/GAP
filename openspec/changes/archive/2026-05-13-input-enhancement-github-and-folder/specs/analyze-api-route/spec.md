@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: POST /api/analyze input validation
 The endpoint SHALL accept `POST` requests with a JSON body containing: `mode` (`'monorepo' | 'separate' | 'backend-only'`), `inputMethod` (`'github' | 'folder' | 'paste'`, defaulting to `'paste'` if absent), and input fields depending on method:
@@ -48,7 +48,7 @@ When `mode === 'monorepo'`, the endpoint SHALL call `detectMonorepoLayout(repoSo
 - **THEN** `detectMonorepoLayout` SHALL be called and its result used to split the source
 
 ### Requirement: Full pipeline orchestration
-The endpoint SHALL execute the pipeline in order: parse backend routes → parse frontend calls → analyze gap → classify features → generate snippets batch. The result SHALL conform to `GapAnalysisResult` from `lib/types.ts`.
+The endpoint SHALL execute the pipeline in order: parse backend routes → parse frontend calls → analyze gap → classify features → generate snippets batch. The result SHALL conform to `GapAnalysisResult`.
 
 #### Scenario: Pipeline completes successfully
 - **WHEN** all pipeline steps succeed
@@ -56,22 +56,22 @@ The endpoint SHALL execute the pipeline in order: parse backend routes → parse
 
 #### Scenario: Pipeline step failure
 - **WHEN** any pipeline step throws an unhandled error
-- **THEN** the endpoint SHALL catch it and return `{ error: "analysis failed", code: "PIPELINE_ERROR" }` with status 500
+- **THEN** the endpoint SHALL return `{ error: "analysis failed", code: "PIPELINE_ERROR" }` with status 500
 
 ### Requirement: POST /api/analyze response shape
-On success, the endpoint SHALL return `200` with `Content-Type: application/json` and a body matching `GapAnalysisResult`: `{ mode, routes, features, summary: { total, connected, orphan, ghost } }`.
+On success, the endpoint SHALL return `200` with a body matching `GapAnalysisResult` plus `analysisId`.
 
 #### Scenario: Response includes all summary counts
 - **WHEN** analysis completes with routes of mixed statuses
 - **THEN** `summary.connected + summary.orphan + summary.ghost` SHALL equal `summary.total`
 
 ### Requirement: POST /api/analyze persists result to database
-After a successful pipeline run, `POST /api/analyze` SHALL attempt to save the result to the database using Prisma. On success, the response body SHALL include an `analysisId` field containing the UUID of the created `Analysis` record. On DB failure, the response SHALL include `analysisId: null` and the pipeline result SHALL still be returned with status 200.
+After a successful pipeline run, `POST /api/analyze` SHALL attempt to save the result to the database. The response body SHALL include `analysisId` on success or `null` on DB failure.
 
 #### Scenario: Response includes analysisId on successful DB write
-- **WHEN** `POST /api/analyze` completes and the database write succeeds
-- **THEN** the response body SHALL include `analysisId` as a non-null UUID string alongside the existing `GapAnalysisResult` fields
+- **WHEN** pipeline succeeds and DB write succeeds
+- **THEN** response body SHALL include `analysisId` as a non-null UUID string
 
 #### Scenario: Response includes analysisId null on DB failure
-- **WHEN** `POST /api/analyze` completes the pipeline successfully but the Prisma write throws
-- **THEN** the response SHALL return status 200 with `analysisId: null` and the full `GapAnalysisResult` body
+- **WHEN** pipeline succeeds but Prisma write throws
+- **THEN** response SHALL return status 200 with `analysisId: null` and full result

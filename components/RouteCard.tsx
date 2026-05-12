@@ -106,7 +106,7 @@ export function RouteCard({ route, defaultOpen = false }: RouteCardProps) {
           )}
 
           {!route.description && !route.fetchSnippet && !route.tsTypes && (
-            <p className="font-mono text-xs text-fg-tertiary pt-3 lowercase" style={{ letterSpacing: '0.05em' }}>
+            <p className="font-mono text-xs text-fg-secondary pt-3 lowercase" style={{ letterSpacing: '0.05em' }}>
               no additional details
             </p>
           )}

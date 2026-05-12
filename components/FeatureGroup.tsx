@@ -26,7 +26,7 @@ export function FeatureGroup({ feature, routes }: FeatureGroupProps) {
             {feature.name}
           </span>
           <span
-            className="font-mono text-xs text-fg-tertiary border border-border-default px-2 py-0.5"
+            className="font-mono text-xs text-fg-secondary border border-border-default px-2 py-0.5"
             style={{ borderRadius: 0, letterSpacing: '0.05em' }}
           >
             {featureRoutes.length} routes

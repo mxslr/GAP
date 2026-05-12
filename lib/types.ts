@@ -73,3 +73,17 @@ export interface FileTreeEntry {
   type: 'file' | 'dir'
   content?: string
 }
+
+export interface FileEntry {
+  path: string
+  content: string
+  size: number
+}
+
+export interface RepoContent {
+  files: FileEntry[]
+  repoUrl?: string
+  branch?: string
+  totalFiles: number
+  skippedFiles: number
+}

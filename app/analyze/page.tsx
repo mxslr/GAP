@@ -1,7 +1,10 @@
 'use client'
 
-import { useReducer, useEffect, useRef } from 'react'
+import { useReducer, useEffect, useRef, useState } from 'react'
 import { ModeSelector } from '../../components/ModeSelector'
+import { InputMethodTabs } from '../../components/InputMethodTabs'
+import { GitHubInput } from '../../components/GitHubInput'
+import { FolderDropZone } from '../../components/FolderDropZone'
 import { ViewToggle } from '../../components/ViewToggle'
 import { MetricCard } from '../../components/MetricCard'
 import { FilterBar } from '../../components/FilterBar'
@@ -9,18 +12,27 @@ import { RouteCard } from '../../components/RouteCard'
 import { FeatureGroup } from '../../components/FeatureGroup'
 import { Button } from '../../components/Button'
 import { Spinner } from '../../components/Spinner'
-import type { GapAnalysisResult } from '../../lib/types'
+import type { GapAnalysisResult, AnalysisMode, RepoContent } from '../../lib/types'
 import type { FilterState } from '../../components/FilterBar'
+import type { InputMethod } from '../../components/InputMethodTabs'
 
-type SelectableMode = 'monorepo' | 'separate'
 type ViewMode = 'flat' | 'feature'
 type PageStatus = 'idle' | 'loading' | 'done' | 'error'
 
+interface FolderState {
+  content: RepoContent | null
+  backendContent: RepoContent | null
+  frontendContent: RepoContent | null
+}
+
 interface PageState {
-  mode: SelectableMode
+  mode: AnalysisMode
   repoSource: string
   backendCode: string
   frontendCode: string
+  backendGithubUrl: string
+  frontendGithubUrl: string
+  repoGithubUrl: string
   status: PageStatus
   result: GapAnalysisResult | null
   viewMode: ViewMode
@@ -30,10 +42,13 @@ interface PageState {
 }
 
 type Action =
-  | { type: 'SET_MODE'; mode: SelectableMode }
+  | { type: 'SET_MODE'; mode: AnalysisMode }
   | { type: 'SET_REPO_SOURCE'; value: string }
   | { type: 'SET_BACKEND_CODE'; value: string }
   | { type: 'SET_FRONTEND_CODE'; value: string }
+  | { type: 'SET_BACKEND_GITHUB'; value: string }
+  | { type: 'SET_FRONTEND_GITHUB'; value: string }
+  | { type: 'SET_REPO_GITHUB'; value: string }
   | { type: 'START_LOADING' }
   | { type: 'SET_LOADING_STEP'; step: number }
   | { type: 'SET_RESULT'; result: GapAnalysisResult }
@@ -48,6 +63,9 @@ const INITIAL_STATE: PageState = {
   repoSource: '',
   backendCode: '',
   frontendCode: '',
+  backendGithubUrl: '',
+  frontendGithubUrl: '',
+  repoGithubUrl: '',
   status: 'idle',
   result: null,
   viewMode: 'flat',
@@ -66,6 +84,12 @@ function reducer(state: PageState, action: Action): PageState {
       return { ...state, backendCode: action.value }
     case 'SET_FRONTEND_CODE':
       return { ...state, frontendCode: action.value }
+    case 'SET_BACKEND_GITHUB':
+      return { ...state, backendGithubUrl: action.value }
+    case 'SET_FRONTEND_GITHUB':
+      return { ...state, frontendGithubUrl: action.value }
+    case 'SET_REPO_GITHUB':
+      return { ...state, repoGithubUrl: action.value }
     case 'START_LOADING':
       return { ...state, status: 'loading', error: null, result: null, loadingStep: 0 }
     case 'SET_LOADING_STEP':
@@ -83,7 +107,13 @@ function reducer(state: PageState, action: Action): PageState {
   }
 }
 
-function getLoadingSteps(mode: SelectableMode): string[] {
+function repoContentToCode(content: RepoContent): string {
+  return content.files
+    .map((f) => `// === FILE: ${f.path} ===\n${f.content}`)
+    .join('\n\n')
+}
+
+function getLoadingSteps(mode: AnalysisMode, inputMethod: InputMethod): string[] {
   const base = [
     'parsing backend routes...',
     'parsing frontend calls...',
@@ -91,13 +121,22 @@ function getLoadingSteps(mode: SelectableMode): string[] {
     'classifying features...',
     'generating snippets...',
   ]
-  return mode === 'monorepo' ? ['detecting layout...', ...base] : base
+  const withLayout = mode === 'monorepo' ? ['detecting layout...', ...base] : base
+  if (inputMethod === 'github') return ['fetching repository...', ...withLayout]
+  if (inputMethod === 'folder') return ['reading folder...', ...withLayout]
+  return withLayout
 }
 
 const STEP_DURATIONS = [2000, 3000, 3000, 2000, 3000]
 
 export default function AnalyzePage() {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE)
+  const [inputMethod, setInputMethod] = useState<InputMethod>('paste')
+  const [folderState, setFolderState] = useState<FolderState>({
+    content: null,
+    backendContent: null,
+    frontendContent: null,
+  })
   const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -108,8 +147,26 @@ export default function AnalyzePage() {
 
   function canSubmit(): boolean {
     if (state.status === 'loading') return false
+    if (inputMethod === 'github') {
+      if (state.mode === 'monorepo') return state.repoGithubUrl.trim().length > 0
+      if (state.mode === 'separate') {
+        return state.backendGithubUrl.trim().length > 0 && state.frontendGithubUrl.trim().length > 0
+      }
+      return state.backendGithubUrl.trim().length > 0
+    }
+    if (inputMethod === 'folder') {
+      if (state.mode === 'monorepo') return folderState.content !== null
+      if (state.mode === 'separate') {
+        return folderState.backendContent !== null && folderState.frontendContent !== null
+      }
+      return folderState.backendContent !== null
+    }
+    // paste
     if (state.mode === 'monorepo') return state.repoSource.trim().length > 0
-    return state.backendCode.trim().length > 0 && state.frontendCode.trim().length > 0
+    if (state.mode === 'separate') {
+      return state.backendCode.trim().length > 0 && state.frontendCode.trim().length > 0
+    }
+    return state.backendCode.trim().length > 0
   }
 
   function startStepProgression(steps: string[]) {
@@ -134,14 +191,41 @@ export default function AnalyzePage() {
     if (stepTimerRef.current) clearTimeout(stepTimerRef.current)
     dispatch({ type: 'START_LOADING' })
 
-    const steps = getLoadingSteps(state.mode)
+    const steps = getLoadingSteps(state.mode, inputMethod)
     startStepProgression(steps)
 
     try {
-      const body =
-        state.mode === 'monorepo'
-          ? { mode: 'monorepo', repoSource: state.repoSource }
-          : { mode: 'separate', backendCode: state.backendCode, frontendCode: state.frontendCode }
+      let body: Record<string, unknown>
+
+      if (inputMethod === 'github') {
+        body = { mode: state.mode, inputMethod: 'github' }
+        if (state.mode === 'monorepo') body.repoGithubUrl = state.repoGithubUrl
+        else if (state.mode === 'separate') {
+          body.backendGithubUrl = state.backendGithubUrl
+          body.frontendGithubUrl = state.frontendGithubUrl
+        } else {
+          body.backendGithubUrl = state.backendGithubUrl
+        }
+      } else if (inputMethod === 'folder') {
+        body = { mode: state.mode, inputMethod: 'folder' }
+        if (state.mode === 'monorepo' && folderState.content) {
+          body.repoSource = repoContentToCode(folderState.content)
+        } else if (state.mode === 'separate') {
+          body.backendCode = folderState.backendContent ? repoContentToCode(folderState.backendContent) : ''
+          body.frontendCode = folderState.frontendContent ? repoContentToCode(folderState.frontendContent) : ''
+        } else {
+          body.backendCode = folderState.backendContent ? repoContentToCode(folderState.backendContent) : ''
+        }
+      } else {
+        // paste — existing behavior
+        if (state.mode === 'monorepo') {
+          body = { mode: 'monorepo', repoSource: state.repoSource }
+        } else if (state.mode === 'separate') {
+          body = { mode: 'separate', backendCode: state.backendCode, frontendCode: state.frontendCode }
+        } else {
+          body = { mode: 'backend-only', backendCode: state.backendCode }
+        }
+      }
 
       const res = await fetch('/api/analyze', {
         method: 'POST',
@@ -165,7 +249,7 @@ export default function AnalyzePage() {
     }
   }
 
-  const loadingSteps = getLoadingSteps(state.mode)
+  const loadingSteps = getLoadingSteps(state.mode, inputMethod)
   const currentStep = loadingSteps[state.loadingStep] ?? loadingSteps[loadingSteps.length - 1]
 
   const filteredRoutes = (state.result?.routes ?? []).filter((r) => {
@@ -174,7 +258,10 @@ export default function AnalyzePage() {
     return statusMatch && methodMatch
   })
 
-  const modeLabel = state.mode === 'monorepo' ? 'MONOREPO MODE' : 'SEPARATE MODE'
+  const modeLabel =
+    state.mode === 'monorepo' ? 'MONOREPO MODE'
+    : state.mode === 'separate' ? 'SEPARATE MODE'
+    : 'BACKEND-ONLY MODE'
 
   return (
     <main className="min-h-screen bg-bg-primary pt-24 pb-16 px-6">
@@ -196,7 +283,7 @@ export default function AnalyzePage() {
           </p>
         </div>
 
-        {/* Input section — hidden during loading */}
+        {/* Input section — hidden during loading / done */}
         {state.status !== 'loading' && state.status !== 'done' && (
           <div
             className="flex flex-col gap-4 animate-fade-in"
@@ -207,61 +294,158 @@ export default function AnalyzePage() {
               onChange={(mode) => dispatch({ type: 'SET_MODE', mode })}
             />
 
-            {state.mode === 'monorepo' ? (
-              <div className="flex flex-col gap-2">
-                <label
-                  className="font-mono text-xs text-fg-secondary lowercase"
-                  style={{ letterSpacing: '0.08em' }}
-                >
-                  paste your full project (file tree or pasted folders)
-                </label>
-                <textarea
-                  value={state.repoSource}
-                  onChange={(e) => dispatch({ type: 'SET_REPO_SOURCE', value: e.target.value })}
-                  placeholder={"server/app.js\nconst express = require('express')\napp.get('/users', ...)\n\nclient/src/App.jsx\nfetch('/api/users')..."}
-                  rows={14}
-                  className="w-full bg-bg-secondary border border-border-default text-fg-primary font-mono text-sm p-4 resize-y focus:border-border-hover focus:outline-none transition-colors duration-200 placeholder:text-fg-tertiary"
-                  style={{ borderRadius: 0 }}
-                />
-                <p className="font-mono text-xs text-fg-tertiary lowercase" style={{ letterSpacing: '0.05em' }}>
-                  ai will detect which folders are backend and frontend
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                  <label
-                    className="font-mono text-xs text-fg-secondary lowercase"
-                    style={{ letterSpacing: '0.08em' }}
-                  >
-                    backend code
-                  </label>
-                  <textarea
-                    value={state.backendCode}
-                    onChange={(e) => dispatch({ type: 'SET_BACKEND_CODE', value: e.target.value })}
-                    placeholder="Express routes, FastAPI endpoints, Laravel controllers..."
-                    rows={14}
-                    className="w-full bg-bg-secondary border border-border-default text-fg-primary font-mono text-sm p-4 resize-y focus:border-border-hover focus:outline-none transition-colors duration-200 placeholder:text-fg-tertiary"
-                    style={{ borderRadius: 0 }}
+            <InputMethodTabs activeMethod={inputMethod} onMethodChange={setInputMethod} />
+
+            {/* Input area — 3×3 matrix */}
+            {inputMethod === 'github' && (
+              <>
+                {state.mode === 'monorepo' && (
+                  <GitHubInput
+                    value={state.repoGithubUrl}
+                    onChange={(v) => dispatch({ type: 'SET_REPO_GITHUB', value: v })}
                   />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label
-                    className="font-mono text-xs text-fg-secondary lowercase"
-                    style={{ letterSpacing: '0.08em' }}
-                  >
-                    frontend code
-                  </label>
-                  <textarea
-                    value={state.frontendCode}
-                    onChange={(e) => dispatch({ type: 'SET_FRONTEND_CODE', value: e.target.value })}
-                    placeholder="React components, axios calls, fetch()..."
-                    rows={14}
-                    className="w-full bg-bg-secondary border border-border-default text-fg-primary font-mono text-sm p-4 resize-y focus:border-border-hover focus:outline-none transition-colors duration-200 placeholder:text-fg-tertiary"
-                    style={{ borderRadius: 0 }}
+                )}
+                {state.mode === 'separate' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <GitHubInput
+                      label="backend"
+                      value={state.backendGithubUrl}
+                      onChange={(v) => dispatch({ type: 'SET_BACKEND_GITHUB', value: v })}
+                    />
+                    <GitHubInput
+                      label="frontend"
+                      value={state.frontendGithubUrl}
+                      onChange={(v) => dispatch({ type: 'SET_FRONTEND_GITHUB', value: v })}
+                    />
+                  </div>
+                )}
+                {state.mode === 'backend-only' && (
+                  <GitHubInput
+                    label="backend"
+                    value={state.backendGithubUrl}
+                    onChange={(v) => dispatch({ type: 'SET_BACKEND_GITHUB', value: v })}
                   />
-                </div>
-              </div>
+                )}
+              </>
+            )}
+
+            {inputMethod === 'folder' && (
+              <>
+                {state.mode === 'monorepo' && (
+                  <FolderDropZone
+                    onFilesRead={(c) => setFolderState((s) => ({ ...s, content: c }))}
+                    fileCount={folderState.content?.totalFiles}
+                    skippedCount={folderState.content?.skippedFiles}
+                  />
+                )}
+                {state.mode === 'separate' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <FolderDropZone
+                      label="backend"
+                      onFilesRead={(c) => setFolderState((s) => ({ ...s, backendContent: c }))}
+                      fileCount={folderState.backendContent?.totalFiles}
+                      skippedCount={folderState.backendContent?.skippedFiles}
+                    />
+                    <FolderDropZone
+                      label="frontend"
+                      onFilesRead={(c) => setFolderState((s) => ({ ...s, frontendContent: c }))}
+                      fileCount={folderState.frontendContent?.totalFiles}
+                      skippedCount={folderState.frontendContent?.skippedFiles}
+                    />
+                  </div>
+                )}
+                {state.mode === 'backend-only' && (
+                  <FolderDropZone
+                    label="backend"
+                    onFilesRead={(c) => setFolderState((s) => ({ ...s, backendContent: c }))}
+                    fileCount={folderState.backendContent?.totalFiles}
+                    skippedCount={folderState.backendContent?.skippedFiles}
+                  />
+                )}
+              </>
+            )}
+
+            {inputMethod === 'paste' && (
+              <>
+                {state.mode === 'monorepo' && (
+                  <div className="flex flex-col gap-2">
+                    <label
+                      className="font-mono text-xs text-fg-secondary lowercase"
+                      style={{ letterSpacing: '0.08em' }}
+                    >
+                      paste your full project (file tree or pasted folders)
+                    </label>
+                    <textarea
+                      value={state.repoSource}
+                      onChange={(e) => dispatch({ type: 'SET_REPO_SOURCE', value: e.target.value })}
+                      placeholder={"server/app.js\nconst express = require('express')\napp.get('/users', ...)\n\nclient/src/App.jsx\nfetch('/api/users')..."}
+                      rows={14}
+                      className="w-full bg-bg-secondary border border-border-default text-fg-primary font-mono text-sm p-4 resize-y focus:border-border-hover focus:outline-none transition-colors duration-200 placeholder:text-fg-tertiary"
+                      style={{ borderRadius: 0 }}
+                    />
+                    <p className="font-mono text-xs text-fg-secondary lowercase" style={{ letterSpacing: '0.05em' }}>
+                      ai will detect which folders are backend and frontend
+                    </p>
+                  </div>
+                )}
+                {state.mode === 'separate' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-2">
+                      <label
+                        className="font-mono text-xs text-fg-secondary lowercase"
+                        style={{ letterSpacing: '0.08em' }}
+                      >
+                        backend code
+                      </label>
+                      <textarea
+                        value={state.backendCode}
+                        onChange={(e) => dispatch({ type: 'SET_BACKEND_CODE', value: e.target.value })}
+                        placeholder="Express routes, FastAPI endpoints, Laravel controllers..."
+                        rows={14}
+                        className="w-full bg-bg-secondary border border-border-default text-fg-primary font-mono text-sm p-4 resize-y focus:border-border-hover focus:outline-none transition-colors duration-200 placeholder:text-fg-tertiary"
+                        style={{ borderRadius: 0 }}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label
+                        className="font-mono text-xs text-fg-secondary lowercase"
+                        style={{ letterSpacing: '0.08em' }}
+                      >
+                        frontend code
+                      </label>
+                      <textarea
+                        value={state.frontendCode}
+                        onChange={(e) => dispatch({ type: 'SET_FRONTEND_CODE', value: e.target.value })}
+                        placeholder="React components, axios calls, fetch()..."
+                        rows={14}
+                        className="w-full bg-bg-secondary border border-border-default text-fg-primary font-mono text-sm p-4 resize-y focus:border-border-hover focus:outline-none transition-colors duration-200 placeholder:text-fg-tertiary"
+                        style={{ borderRadius: 0 }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {state.mode === 'backend-only' && (
+                  <div className="flex flex-col gap-2">
+                    <label
+                      className="font-mono text-xs text-fg-secondary lowercase"
+                      style={{ letterSpacing: '0.08em' }}
+                    >
+                      backend code
+                    </label>
+                    <textarea
+                      value={state.backendCode}
+                      onChange={(e) => dispatch({ type: 'SET_BACKEND_CODE', value: e.target.value })}
+                      placeholder="Express routes, FastAPI endpoints, Laravel controllers..."
+                      rows={14}
+                      className="w-full bg-bg-secondary border border-border-default text-fg-primary font-mono text-sm p-4 resize-y focus:border-border-hover focus:outline-none transition-colors duration-200 placeholder:text-fg-tertiary"
+                      style={{ borderRadius: 0 }}
+                    />
+                    <p className="font-mono text-xs text-fg-secondary lowercase" style={{ letterSpacing: '0.05em' }}>
+                      supports express, fastapi, laravel
+                    </p>
+                  </div>
+                )}
+              </>
             )}
 
             {state.status === 'error' && state.error && (
@@ -357,7 +541,7 @@ export default function AnalyzePage() {
             )}
 
             {/* Count line */}
-            <p className="font-mono text-xs text-fg-tertiary lowercase" style={{ letterSpacing: '0.08em' }}>
+            <p className="font-mono text-xs text-fg-secondary lowercase" style={{ letterSpacing: '0.08em' }}>
               {state.viewMode === 'flat'
                 ? `showing ${filteredRoutes.length} of ${state.result.routes.length} routes`
                 : `${state.result.features.length} feature groups · ${state.result.routes.length} routes total`}
@@ -369,7 +553,7 @@ export default function AnalyzePage() {
                 className="border border-border-default p-10 text-center animate-fade-in"
                 style={{ animationDelay: '250ms', animationFillMode: 'both', borderRadius: 0 }}
               >
-                <p className="font-mono text-sm text-fg-tertiary lowercase" style={{ letterSpacing: '0.08em' }}>
+                <p className="font-mono text-sm text-fg-secondary lowercase" style={{ letterSpacing: '0.08em' }}>
                   no routes detected — check your input and try again
                 </p>
               </div>
@@ -380,7 +564,7 @@ export default function AnalyzePage() {
               >
                 {filteredRoutes.length === 0 ? (
                   <div className="bg-bg-primary border border-border-default p-6 text-center">
-                    <p className="font-mono text-sm text-fg-tertiary lowercase" style={{ letterSpacing: '0.08em' }}>
+                    <p className="font-mono text-sm text-fg-secondary lowercase" style={{ letterSpacing: '0.08em' }}>
                       no routes match the current filters
                     </p>
                   </div>

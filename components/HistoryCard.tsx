@@ -58,7 +58,7 @@ export function HistoryCard({
         {/* Left: timestamp + mode */}
         <div className="flex items-center gap-4 min-w-0">
           <span
-            className="font-mono text-xs text-fg-tertiary whitespace-nowrap"
+            className="font-mono text-xs text-fg-secondary whitespace-nowrap"
             style={{ letterSpacing: '0.05em' }}
           >
             {relativeTime(createdAt)}

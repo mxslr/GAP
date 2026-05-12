@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Docs generator page renders hero and input section
 The system SHALL render a `/docs-generator` page with a small hero section (title + subtitle) and an input section controlled by `InputMethodTabs`. The three input methods (GitHub URL, Drop Folder, Paste Code) SHALL all be available. In paste mode, the existing single textarea labeled `"backend code"` with helper text `"supports express, fastapi, laravel"` SHALL be shown. In GitHub mode, a single `GitHubInput` labeled `"backend repository"` SHALL be shown. In folder mode, a single `FolderDropZone` labeled `"backend folder"` SHALL be shown. A `"generate documentation"` submit button SHALL be present for all methods.
@@ -39,18 +39,18 @@ The system SHALL display a square spinner and cycling step messages while the AP
 - **THEN** the visible step message advances to the next in sequence
 
 ### Requirement: Result renders in two-column layout via ApiDocPanel
-The system SHALL display the generation result using the `ApiDocPanel` component, which provides a sticky left TOC sidebar (30% width) and a scrollable right Markdown panel (70% width).
+The system SHALL display the generation result using the `ApiDocPanel` component with sticky left TOC sidebar and scrollable right Markdown panel.
 
 #### Scenario: Result panel appears after successful generation
 - **WHEN** the API returns `{ markdown, openapi }` successfully
-- **THEN** the loading state is removed and the ApiDocPanel is rendered with the returned Markdown
+- **THEN** loading state is removed and ApiDocPanel is rendered with the returned Markdown
 
 #### Scenario: Error state shown on API failure
 - **WHEN** the API returns a non-2xx response
-- **THEN** loading state is removed and an error message is shown; the input section is restored
+- **THEN** loading state is removed and an error message is shown; input section is restored
 
 ### Requirement: Result persists to localStorage and is restored on reload
-The system SHALL write the last successful result (`{ markdown, openapi, timestamp }`) to `localStorage` under key `gap:docs-generator:last-result` immediately after a successful API call. On page mount, the system SHALL read this key and, if present, pre-populate the ApiDocPanel with the cached result and show a banner indicating it was loaded from cache.
+The system SHALL write the last successful result to `localStorage` under key `gap:docs-generator:last-result` and restore it on page mount with a cache banner.
 
 #### Scenario: Result survives page reload
 - **WHEN** user generated docs and then performs a hard reload of `/docs-generator`
@@ -58,23 +58,19 @@ The system SHALL write the last successful result (`{ markdown, openapi, timesta
 
 #### Scenario: User can dismiss cached result
 - **WHEN** cached result is displayed with the cache banner
-- **THEN** user can click a dismiss/clear action that removes the panel and shows the input form again; the localStorage key is cleared
+- **THEN** user can click dismiss to clear the panel and localStorage key
 
 ### Requirement: Export bar provides copy and download actions
-The system SHALL render an export bar (sticky top-right or bottom) with three actions: "copy markdown", "download .md", and "download openapi.json". The "download openapi.json" button SHALL be disabled when `openapi` is null or undefined.
+The system SHALL render an export bar with "copy markdown", "download .md", and "download openapi.json" actions.
 
 #### Scenario: Copy markdown writes to clipboard
 - **WHEN** user clicks "copy markdown"
-- **THEN** the full Markdown string is written to the system clipboard and a brief confirmation feedback is shown
+- **THEN** the full Markdown string is written to clipboard
 
 #### Scenario: Download .md triggers file download
 - **WHEN** user clicks "download .md"
-- **THEN** browser downloads a file named `api-docs.md` containing the Markdown string
+- **THEN** browser downloads `api-docs.md`
 
-#### Scenario: Download openapi.json triggers file download
-- **WHEN** user clicks "download openapi.json" and openapi data is available
-- **THEN** browser downloads a file named `openapi.json` containing the serialized OpenAPI object
-
-#### Scenario: Download openapi.json button is disabled when openapi is absent
-- **WHEN** the API response has no openapi field or it is null
-- **THEN** the "download openapi.json" button is visually disabled and non-interactive
+#### Scenario: Download openapi.json button disabled when absent
+- **WHEN** openapi field is null
+- **THEN** "download openapi.json" button is visually disabled and non-interactive

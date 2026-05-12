@@ -86,7 +86,7 @@ export default function HomePage() {
         style={{ animationDelay: '100ms' }}
       >
         <p
-          className="font-mono text-fg-tertiary text-xs uppercase mb-8"
+          className="font-mono text-fg-secondary text-xs uppercase mb-8"
           style={{ letterSpacing: '0.18em' }}
         >
           capabilities
@@ -98,7 +98,7 @@ export default function HomePage() {
               className={`p-8 ${i < pillars.length - 1 ? 'border-r-0 border-b border-border-default lg:border-b-0 lg:border-r border-border-default' : ''}`}
             >
               <span
-                className="font-mono text-fg-tertiary text-xs block mb-4"
+                className="font-mono text-fg-secondary text-xs block mb-4"
                 style={{ letterSpacing: '0.1em' }}
               >
                 {pillar.index}
@@ -120,7 +120,7 @@ export default function HomePage() {
         style={{ animationDelay: '200ms' }}
       >
         <p
-          className="font-mono text-fg-tertiary text-xs uppercase mb-12"
+          className="font-mono text-fg-secondary text-xs uppercase mb-12"
           style={{ letterSpacing: '0.18em' }}
         >
           how it works
@@ -132,7 +132,7 @@ export default function HomePage() {
               className={`py-8 px-8 ${i < steps.length - 1 ? 'border-b border-border-default md:border-b-0 md:border-r border-border-default' : ''}`}
             >
               <span
-                className="font-mono text-fg-tertiary text-xs block mb-3"
+                className="font-mono text-fg-secondary text-xs block mb-3"
                 style={{ letterSpacing: '0.1em' }}
               >
                 {step.index} /
@@ -157,7 +157,7 @@ export default function HomePage() {
         style={{ animationDelay: '300ms' }}
       >
         <p
-          className="font-mono text-fg-tertiary text-xs uppercase mb-8"
+          className="font-mono text-fg-secondary text-xs uppercase mb-8"
           style={{ letterSpacing: '0.18em' }}
         >
           live preview
@@ -177,7 +177,7 @@ export default function HomePage() {
               {['next.js', 'prisma', 'gemini', 'kubernetes', 'postgresql'].map((tech) => (
                 <span
                   key={tech}
-                  className="font-mono text-fg-tertiary text-xs lowercase"
+                  className="font-mono text-fg-secondary text-xs lowercase"
                   style={{ letterSpacing: '0.08em' }}
                 >
                   {tech}
@@ -185,7 +185,7 @@ export default function HomePage() {
               ))}
             </div>
             <p
-              className="font-mono text-fg-tertiary text-xs lowercase"
+              className="font-mono text-fg-secondary text-xs lowercase"
               style={{ letterSpacing: '0.06em' }}
             >
               built for engineering productivity x ai hackathon

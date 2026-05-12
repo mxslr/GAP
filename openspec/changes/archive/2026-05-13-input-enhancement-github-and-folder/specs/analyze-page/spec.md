@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Mode Selector
 The `/analyze` page SHALL render a `ModeSelector` component at the top with **three** tabs: **Monorepo**, **Separate Repos**, and **Backend-Only**. The selected tab SHALL be highlighted (white background, black text active state). Switching tabs SHALL update the input section below without a page navigation.
@@ -107,55 +107,39 @@ A `ViewToggle` component SHALL appear at the top-right of the results area with 
 - **THEN** the flat list SHALL be replaced by feature group accordions
 
 ### Requirement: Filter bar (flat view only)
-A `FilterBar` component SHALL appear below the metric cards when flat view is active. It SHALL support filtering by status (`all`, `connected`, `orphan`, `ghost`) and by HTTP method (`GET`, `POST`, `PUT`, `DELETE`, `PATCH`). Active filter buttons SHALL have white background and black text; default state SHALL be thin gray border. Filter bar SHALL be hidden in feature view.
+A `FilterBar` component SHALL appear below the metric cards when flat view is active. It SHALL support filtering by status and by HTTP method. Filter bar SHALL be hidden in feature view.
 
 #### Scenario: Filter by status
 - **WHEN** the user clicks the "orphan" filter
 - **THEN** only routes with `status === 'orphan'` SHALL be shown in the flat list
-
-#### Scenario: Filter by method
-- **WHEN** the user clicks the "GET" method filter
-- **THEN** only GET routes SHALL be shown, regardless of status filter
 
 #### Scenario: Filter bar hidden in feature view
 - **WHEN** feature view is active
 - **THEN** the filter bar SHALL not be rendered
 
 ### Requirement: Flat view route cards
-In flat view, routes SHALL be listed as collapsible `RouteCard` components. The header SHALL always be visible: `[METHOD badge] [path] [status pill] [chevron icon]`. The body SHALL be collapsed by default and expand on click with a 300ms max-height transition.
-
-#### Scenario: Route card header visible
-- **WHEN** results are displayed in flat view
-- **THEN** each route SHALL show its method badge, path, and status pill
+In flat view, routes SHALL be listed as collapsible `RouteCard` components. The header SHALL always be visible and the body SHALL expand on click.
 
 #### Scenario: Route card expand
 - **WHEN** the user clicks a route card header
 - **THEN** the body SHALL expand showing description, fetch snippet, and TypeScript types
 
-#### Scenario: Copy button in code block
-- **WHEN** the user clicks the copy button on a code block
-- **THEN** the code SHALL be copied to clipboard and the button text SHALL change to `"copied"` for 2 seconds
-
 ### Requirement: Feature view groups
-In feature view, routes SHALL be grouped under `FeatureGroup` accordion components. Each group header SHALL show the feature name and route count. The chevron SHALL rotate 90° when the group is open. Route cards inside SHALL be the same `RouteCard` component as in flat view.
-
-#### Scenario: Feature group collapsed by default
-- **WHEN** feature view first renders
-- **THEN** all feature groups SHALL be collapsed
+In feature view, routes SHALL be grouped under `FeatureGroup` accordion components.
 
 #### Scenario: Feature group expand
 - **WHEN** the user clicks a feature group header
-- **THEN** the group body SHALL expand with a 300ms transition showing its route cards
+- **THEN** the group body SHALL expand showing its route cards
 
 ### Requirement: Empty state handling
-If the analysis returns zero routes, the results section SHALL show a message: `"no routes detected — check your input and try again"` in mono lowercase gray.
+If the analysis returns zero routes, the results section SHALL show `"no routes detected — check your input and try again"` in mono lowercase gray.
 
 #### Scenario: Zero routes
 - **WHEN** the API returns a result with zero routes
-- **THEN** the metric cards SHALL show all zeros and an empty-state message SHALL be displayed instead of a route list
+- **THEN** an empty-state message SHALL be displayed
 
 ### Requirement: Error state handling
-If the API returns an error, an error message SHALL be displayed below the button/loading section in `status.orphan` (red) color. The input form SHALL remain visible so the user can retry.
+If the API returns an error, an error message SHALL be displayed in `status.orphan` (red) color. The input form SHALL remain visible so the user can retry.
 
 #### Scenario: API error
 - **WHEN** the `POST /api/analyze` call fails
