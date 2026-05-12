@@ -67,3 +67,9 @@ export interface MonorepoLayout {
   confidence: 'high' | 'medium' | 'low'
   reasoning?: string
 }
+
+export interface FileTreeEntry {
+  path: string
+  type: 'file' | 'dir'
+  content?: string
+}
