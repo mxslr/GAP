@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700&family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap');
+@import 'highlight.js/styles/github-dark.css';
 
 @tailwind base;
 @tailwind components;
@@ -67,3 +68,25 @@ body {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* Scope highlight.js styles to doc panel only */
+.hljs-wrap .hljs {
+  background: var(--bg-tertiary);
+  padding: 1rem;
+  font-family: 'Geist Mono', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+/* Markdown prose inside ApiDocPanel */
+.doc-prose h1 { font-family: 'Space Grotesk', sans-serif; font-size: 1.75rem; font-weight: 700; color: var(--fg-primary); margin-bottom: 1rem; }
+.doc-prose h2 { font-family: 'Space Grotesk', sans-serif; font-size: 1.25rem; font-weight: 700; color: var(--fg-primary); margin-top: 2.5rem; margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-default); }
+.doc-prose h3 { font-family: 'Geist Mono', monospace; font-size: 0.875rem; color: var(--fg-secondary); margin-top: 1.5rem; margin-bottom: 0.5rem; }
+.doc-prose p { color: var(--fg-secondary); line-height: 1.7; margin-bottom: 0.75rem; font-size: 0.9rem; }
+.doc-prose strong { color: var(--fg-primary); }
+.doc-prose em { color: var(--fg-tertiary); }
+.doc-prose hr { border: none; border-top: 1px solid var(--border-default); margin: 1.5rem 0; }
+.doc-prose ul, .doc-prose ol { color: var(--fg-secondary); padding-left: 1.25rem; margin-bottom: 0.75rem; }
+.doc-prose li { margin-bottom: 0.25rem; font-size: 0.9rem; }
+.doc-prose a { color: var(--fg-primary); text-decoration: underline; text-underline-offset: 3px; }
+.doc-prose code:not(pre code) { font-family: 'Geist Mono', monospace; font-size: 0.8rem; background: var(--bg-tertiary); color: var(--fg-secondary); padding: 0.1rem 0.35rem; }
