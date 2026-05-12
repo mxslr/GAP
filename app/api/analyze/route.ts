@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 import { parseBackendRoutes } from '../../../lib/parsers/backend'
 import { parseFrontendCalls } from '../../../lib/parsers/frontend'
 import { analyzeGap } from '../../../lib/analyzer/gap'
 import { classifyFeatures } from '../../../lib/analyzer/feature-classifier'
 import { generateSnippetsBatch } from '../../../lib/generators/snippets'
 import { detectMonorepoLayout, parseTextTree } from '../../../lib/repo/monorepo-detector'
+import { prisma } from '../../../lib/db'
 import type { GapAnalysisResult, AnalyzedRoute } from '../../../lib/types'
 
 interface AnalyzeRequest {
@@ -122,7 +124,54 @@ export async function POST(request: Request) {
       summary,
     }
 
-    return NextResponse.json(result, { status: 200 })
+    // Persist to DB — graceful degradation on failure
+    let analysisId: string | null = null
+    try {
+      const id = randomUUID()
+      await prisma.analysis.create({
+        data: {
+          id,
+          mode,
+          backendSource: (backendCode ?? beCode).slice(0, 5000) || null,
+          frontendSource: (frontendCode ?? feCode).slice(0, 5000) || null,
+          repoSource: repoSource ? repoSource.slice(0, 5000) : null,
+          totalRoutes: enrichedRoutes.length,
+          connectedCount: summary.connected,
+          orphanCount: summary.orphan,
+          ghostCount: summary.ghost,
+        },
+      })
+      for (const feature of features) {
+        await prisma.feature.create({
+          data: {
+            id: feature.id,
+            analysisId: id,
+            name: feature.name,
+            description: feature.description ?? null,
+          },
+        })
+      }
+      for (const route of enrichedRoutes) {
+        await prisma.route.create({
+          data: {
+            id: route.id,
+            analysisId: id,
+            method: route.method,
+            path: route.path,
+            status: route.status,
+            description: route.description ?? null,
+            fetchSnippet: route.fetchSnippet ?? null,
+            tsTypes: route.tsTypes ?? null,
+            featureId: route.featureId ?? null,
+          },
+        })
+      }
+      analysisId = id
+    } catch {
+      // DB unavailable — return result without persisting
+    }
+
+    return NextResponse.json({ analysisId, ...result }, { status: 200 })
   } catch (err) {
     console.error('[/api/analyze]', err)
     return NextResponse.json(
