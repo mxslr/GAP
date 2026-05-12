@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Analysis {
+  id             String    @id @default(uuid())
+  mode           String
+  backendSource  String?
+  frontendSource String?
+  repoSource     String?
+  totalRoutes    Int
+  connectedCount Int       @default(0)
+  orphanCount    Int       @default(0)
+  ghostCount     Int       @default(0)
+  routes         Route[]
+  features       Feature[]
+  apiDoc         ApiDoc?
+  createdAt      DateTime  @default(now())
+}
+
+model Route {
+  id           String   @id @default(uuid())
+  analysis     Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  analysisId   String
+  method       String
+  path         String
+  status       String
+  description  String?
+  fetchSnippet String?
+  tsTypes      String?
+  featureId    String?
+  feature      Feature? @relation(fields: [featureId], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([analysisId])
+  @@index([status])
+  @@index([featureId])
+}
+
+model Feature {
+  id          String   @id @default(uuid())
+  analysis    Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  analysisId  String
+  name        String
+  description String?
+  routes      Route[]
+  createdAt   DateTime @default(now())
+
+  @@index([analysisId])
+}
+
+model ApiDoc {
+  id           String   @id @default(uuid())
+  analysis     Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  analysisId   String   @unique
+  markdownDoc  String   @db.Text
+  openapiJson  String?  @db.Text
+  createdAt    DateTime @default(now())
+}
+
+model SnippetCache {
+  key          String   @id
+  fetchSnippet String   @db.Text
+  tsTypes      String   @db.Text
+  description  String?
+  createdAt    DateTime @default(now())
+}
