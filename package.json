@@ -15,12 +15,14 @@
     "@google/generative-ai": "^0.21.0",
     "@prisma/client": "^5.22.0",
     "@tabler/icons-react": "^3.24.0",
+    "groq-sdk": "^1.2.0",
     "highlight.js": "^11.11.1",
     "next": "14.2.18",
     "react": "^18",
     "react-dom": "^18",
     "react-markdown": "^10.1.0",
-    "rehype-highlight": "^7.0.2"
+    "rehype-highlight": "^7.0.2",
+    "undici": "^7.25.0"
   },
   "devDependencies": {
     "@types/node": "^20",

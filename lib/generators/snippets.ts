@@ -1,6 +1,6 @@
 import crypto from 'crypto'
-import { SchemaType } from '@google/generative-ai'
-import { generateJSON } from '../gemini'
+import { generateJSON } from '../ai-provider'
+import { GROQ_MODELS } from '../groq'
 import { prisma } from '../db'
 import type { AnalyzedRoute } from '../types'
 
@@ -21,7 +21,7 @@ interface GeminiSnippetResponse {
   results: GeminiSnippetEntry[]
 }
 
-const BATCH_SIZE = 50
+const BATCH_SIZE = 5
 
 // Task 1.1 — cache key
 export function cacheKey(method: string, path: string): string {
@@ -44,34 +44,52 @@ async function setCached(key: string, data: SnippetResult): Promise<void> {
   })
 }
 
+// Task 3.0 — default snippet when AI is unavailable
+function defaultSnippet(route: AnalyzedRoute): GeminiSnippetEntry {
+  const safePath = route.path.replace(/[/:]/g, '_').replace(/^_+/, '')
+  const resourceName = safePath.charAt(0).toUpperCase() + safePath.slice(1)
+  const verb = route.method.charAt(0).toUpperCase() + route.method.slice(1).toLowerCase()
+  const hasBody = ['POST', 'PUT', 'PATCH'].includes(route.method.toUpperCase())
+  const bodyArg = hasBody ? `, { method: '${route.method}', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }` : ''
+  return {
+    routeKey: `${route.method.toUpperCase()}:${route.path}`,
+    description: `${verb} endpoint at ${route.path}`,
+    fetchSnippet: `const res = await fetch('${route.path}'${bodyArg});\\nconst data = await res.json();`,
+    tsTypes: `interface ${verb}${resourceName}Response { id: string; }`,
+  }
+}
+
 // Task 3.1 — build batch prompt
 export function buildBatchPrompt(routes: AnalyzedRoute[]): string {
-  const routeList = routes
-    .map((r) => `- ${r.method} ${r.path}`)
-    .join('\n')
+  const routeList = routes.map((r) => `${r.method} ${r.path}`).join('\n')
 
-  return `You are an API documentation assistant. For each API route below, generate:
-1. A one-sentence description of what the route does.
-2. A TypeScript fetch snippet using axios (primary) AND native fetch (fallback) in one code block separated by the comment "// --- native fetch ---". Use async/await. Include a try/catch block. For POST/PUT/PATCH routes, include a realistic request body example. For routes with path parameters like :id, use a variable (e.g., const userId = 1).
-3. TypeScript interfaces (use "interface", NOT "type alias") for request body and response. Use PascalCase naming: {Verb}{Resource}Request for request body, {Verb}{Resource}Response for response. For GET routes without a path-param ID, type the response as an array. For GET routes with :id, type as a single object.
+  return `You are an API documentation generator. Analyze these routes and generate fetch snippets and TypeScript types.
 
-Routes:
+CRITICAL JSON RULES:
+- Return ONLY a valid JSON object, no markdown, no explanation
+- All string values must use \\n for newlines (never actual newlines inside strings)
+- Escape all double quotes inside strings as \\"
+- Never use backticks inside JSON string values
+
+Routes to document:
 ${routeList}
 
-Return a JSON object with this exact structure:
+Return this exact JSON structure:
 {
   "results": [
     {
       "routeKey": "METHOD:/path",
-      "description": "One sentence describing the route.",
-      "fetchSnippet": "// axios\\nconst result = await axios.get(...)\\n\\n// --- native fetch ---\\nconst res = await fetch(...)",
-      "tsTypes": "interface GetUserResponse { id: number; name: string; }"
+      "description": "One sentence description",
+      "fetchSnippet": "const res = await fetch('/path', { method: 'METHOD' });\\nconst data = await res.json();",
+      "tsTypes": "interface MethodPathResponse { id: string; name: string; }"
     }
   ]
 }
 
-The routeKey must match exactly: METHOD (uppercase) followed by colon and path, e.g. "GET:/api/users/:id".
-AI-generated types — verify against your actual schema.`
+Rules:
+- routeKey must be METHOD:/path exactly (e.g. "GET:/api/users/:id")
+- fetchSnippet: max 3 lines, use \\n as separator, no backticks
+- tsTypes: max 1 interface with max 4 fields, no backticks`
 }
 
 // Task 3.2 — parse Gemini response
@@ -124,17 +142,17 @@ export async function generateSnippetsBatch(
   }
 
   const geminiSchema = {
-    type: SchemaType.OBJECT,
+    type: 'object',
     properties: {
       results: {
-        type: SchemaType.ARRAY,
+        type: 'array',
         items: {
-          type: SchemaType.OBJECT,
+          type: 'object',
           properties: {
-            routeKey: { type: SchemaType.STRING },
-            description: { type: SchemaType.STRING },
-            fetchSnippet: { type: SchemaType.STRING },
-            tsTypes: { type: SchemaType.STRING },
+            routeKey: { type: 'string' },
+            description: { type: 'string' },
+            fetchSnippet: { type: 'string' },
+            tsTypes: { type: 'string' },
           },
           required: ['routeKey', 'description', 'fetchSnippet', 'tsTypes'],
         },
@@ -143,22 +161,38 @@ export async function generateSnippetsBatch(
     required: ['results'],
   }
 
-  for (const chunk of chunks) {
+  for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+    const chunk = chunks[chunkIdx]
     const prompt = buildBatchPrompt(chunk)
-    let raw: GeminiSnippetResponse
+    let parsed: Map<string, SnippetResult>
+
     try {
-      raw = await generateJSON<GeminiSnippetResponse>(prompt, geminiSchema)
+      const raw = await generateJSON<GeminiSnippetResponse>(prompt, geminiSchema, GROQ_MODELS.fast)
+      parsed = parseGeminiResponse(raw)
     } catch (err) {
-      const paths = chunk.map((r) => `${r.method} ${r.path}`).join(', ')
-      throw new Error(`Gemini failed for routes [${paths}]: ${err instanceof Error ? err.message : String(err)}`)
+      const msg = err instanceof Error ? err.message : String(err)
+      const isQuota = msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate limit')
+      console.warn(`[snippets] batch ${chunkIdx + 1}/${chunks.length} failed (${isQuota ? 'quota' : 'parse error'}), using defaults`)
+      // Use default snippets for this batch instead of failing
+      parsed = new Map(chunk.map((r) => {
+        const entry = defaultSnippet(r)
+        return [entry.routeKey, { fetchSnippet: entry.fetchSnippet, tsTypes: entry.tsTypes, description: entry.description }]
+      }))
     }
 
-    const parsed = parseGeminiResponse(raw)
+    console.log(`[snippets] batch ${chunkIdx + 1}/${chunks.length} complete`)
 
     for (const r of chunk) {
       const rk = routeKey(r)
       const snippet = parsed.get(rk)
-      if (!snippet) continue
+      if (!snippet) {
+        // Route key not found — use default
+        const entry = defaultSnippet(r)
+        const def = { fetchSnippet: entry.fetchSnippet, tsTypes: entry.tsTypes, description: entry.description }
+        result.set(rk, def)
+        await setCached(cacheKey(r.method, r.path), def)
+        continue
+      }
 
       result.set(rk, snippet)
       await setCached(cacheKey(r.method, r.path), snippet)

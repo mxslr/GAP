@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     const inputMethod: string = body?.inputMethod ?? 'paste'
 
     let backendCode: string
+    let fetchedFiles: FileEntry[] | undefined
 
     if (inputMethod === 'github') {
       if (!body?.backendGithubUrl || typeof body.backendGithubUrl !== 'string') {
@@ -27,13 +28,18 @@ export async function POST(req: NextRequest) {
       try {
         const content = await fetchGithubRepo(body.backendGithubUrl as string)
         backendCode = filesToCode(content.files)
+        fetchedFiles = content.files
+        console.log('[docs] files fetched:', content.files.map((f) => f.path))
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'GitHub fetch failed'
         if (msg.includes('rate limit')) {
           return NextResponse.json({ error: msg, code: 'GITHUB_RATE_LIMIT' }, { status: 429 })
         }
-        if (msg.includes('Private repo')) {
-          return NextResponse.json({ error: msg, code: 'GITHUB_PRIVATE_REPO' }, { status: 400 })
+        if (msg.includes('access denied')) {
+          return NextResponse.json({ error: msg, code: 'GITHUB_AUTH_ERROR' }, { status: 429 })
+        }
+        if (msg.includes('not found') || msg.includes('No source files')) {
+          return NextResponse.json({ error: msg, code: 'GITHUB_NOT_FOUND' }, { status: 400 })
         }
         return NextResponse.json({ error: msg, code: 'GITHUB_FETCH_ERROR' }, { status: 502 })
       }
@@ -44,7 +50,7 @@ export async function POST(req: NextRequest) {
       backendCode = body.backendCode as string
     }
 
-    const backendRoutes = await parseBackendRoutes(backendCode)
+    const backendRoutes = await parseBackendRoutes(backendCode, { files: fetchedFiles })
 
     const analyzedRoutes: AnalyzedRoute[] = backendRoutes.map((r) => ({
       id: randomUUID(),

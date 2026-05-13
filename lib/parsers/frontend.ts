@@ -1,4 +1,4 @@
-import { generateJSON } from '../gemini'
+import { generateJSON } from '../ai-provider'
 import type { FrontendCall, HttpMethod, FrontendPattern } from '../types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -193,9 +193,14 @@ async function parseWithGemini(code: string): Promise<FrontendCall[]> {
     },
   }
 
-  const prompt = `Extract all HTTP API calls from the following frontend JavaScript/TypeScript code. Return a JSON array of objects with "method" (GET/POST/PUT/DELETE/PATCH), "path" (the URL path), and "pattern" (one of: axios, fetch, api-client, react-query). Include only actual HTTP API calls, not imports or type definitions.\n\nCode:\n${code}`
+  const prompt = `Extract all HTTP API calls from the following frontend JavaScript/TypeScript code. Return JSON with a "calls" array of objects with "method" (GET/POST/PUT/DELETE/PATCH), "path" (the URL path), and "pattern" (one of: axios, fetch, api-client, react-query). Include only actual HTTP API calls, not imports or type definitions.\n\nCode:\n${code}`
 
-  const results = await generateJSON<GeminiCall[]>(prompt, schema)
+  const raw = await generateJSON<GeminiCall[] | Record<string, unknown>>(prompt, schema)
+
+  // Groq json_object mode always wraps in an object; Gemini may return a bare array
+  const results: GeminiCall[] = Array.isArray(raw)
+    ? raw
+    : (Object.values(raw as Record<string, unknown>).find(Array.isArray) as GeminiCall[] | undefined) ?? []
 
   return results.map((r) => {
     const { path, isDynamic } = normalizePath(r.path)

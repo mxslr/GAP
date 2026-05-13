@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
-import { generateJSON } from '../gemini'
+import { generateJSON } from '../ai-provider'
+import { GROQ_MODELS } from '../groq'
 import type { AnalyzedRoute, FeatureGroup } from '../types'
 
 interface GeminiFeature {
@@ -107,7 +108,7 @@ Instructions:
 - Respond with JSON only`
 
   try {
-    const geminiResult = await generateJSON<GeminiResponse>(prompt, RESPONSE_SCHEMA)
+    const geminiResult = await generateJSON<GeminiResponse>(prompt, RESPONSE_SCHEMA, GROQ_MODELS.fast)
 
     const assignedIndices = new Set<number>()
     const routeFeatureMap = new Map<number, string>()

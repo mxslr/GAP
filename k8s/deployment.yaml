@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gap-api
+  namespace: muyung-anak-telyu
+  labels:
+    app: gap-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gap-api
+  template:
+    metadata:
+      labels:
+        app: gap-api
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: gap-api
+          image: mxslr/gap:v9
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: NEXT_PUBLIC_APP_URL
+              value: "https://muyung-anak-telyu.hackathon.sev-2.com"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: gap-secrets
+                  key: DATABASE_URL
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gap-secrets
+                  key: GROQ_API_KEY
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gap-secrets
+                  key: GEMINI_API_KEY
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gap-secrets
+                  key: GITHUB_TOKEN
+            - name: PORT
+              value: "3000"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false

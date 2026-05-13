@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gap-ingress
+  namespace: muyung-anak-telyu
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: muyung-anak-telyu.hackathon.sev-2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gap-api-service
+                port:
+                  number: 80

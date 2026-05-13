@@ -1,5 +1,4 @@
-import { SchemaType } from '@google/generative-ai'
-import { generateJSON } from '../gemini'
+import { generateJSON } from '../ai-provider'
 import { generateSnippets } from './snippets'
 import type { AnalyzedRoute, FeatureGroup } from '../types'
 
@@ -53,18 +52,18 @@ async function prefillSnippets(routes: AnalyzedRoute[]): Promise<AnalyzedRoute[]
 // ─── Task 1.3 + 1.4 — Gemini batch enrichment with retry ────────────────────
 
 const ENRICHMENT_SCHEMA = {
-  type: SchemaType.OBJECT,
+  type: 'object',
   properties: {
     results: {
-      type: SchemaType.ARRAY,
+      type: 'array',
       items: {
-        type: SchemaType.OBJECT,
+        type: 'object',
         properties: {
-          routeKey: { type: SchemaType.STRING },
-          description: { type: SchemaType.STRING },
-          requestBodyExample: { type: SchemaType.STRING },
-          responseExample: { type: SchemaType.STRING },
-          errorCodes: { type: SchemaType.ARRAY, items: { type: SchemaType.NUMBER } },
+          routeKey: { type: 'string' },
+          description: { type: 'string' },
+          requestBodyExample: { type: 'string' },
+          responseExample: { type: 'string' },
+          errorCodes: { type: 'array', items: { type: 'number' } },
         },
         required: ['routeKey', 'description', 'requestBodyExample', 'responseExample', 'errorCodes'],
       },

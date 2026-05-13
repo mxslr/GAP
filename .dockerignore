@@ -1,0 +1,16 @@
+node_modules
+.next
+.env*
+.git
+.gitignore
+openspec/
+tests/
+**/*.test.ts
+**/*.spec.ts
+coverage/
+dist/
+build/
+.turbo/
+.DS_Store
+kubeconfig.yaml
+README.md

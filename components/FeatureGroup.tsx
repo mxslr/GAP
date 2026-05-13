@@ -2,14 +2,17 @@
 
 import { useState } from 'react'
 import { RouteCard } from './RouteCard'
+import type { SnippetData } from './RouteCard'
 import type { FeatureGroup as FeatureGroupType, AnalyzedRoute } from '../lib/types'
 
 interface FeatureGroupProps {
   feature: FeatureGroupType
   routes: AnalyzedRoute[]
+  snippets?: Record<string, SnippetData>
+  snippetLoading?: boolean
 }
 
-export function FeatureGroup({ feature, routes }: FeatureGroupProps) {
+export function FeatureGroup({ feature, routes, snippets, snippetLoading = false }: FeatureGroupProps) {
   const [open, setOpen] = useState(false)
   const featureRoutes = routes.filter((r) => feature.routeIds.includes(r.id))
 
@@ -33,7 +36,6 @@ export function FeatureGroup({ feature, routes }: FeatureGroupProps) {
           </span>
         </div>
 
-        {/* Chevron — rotates 90° when open */}
         <svg
           width="14"
           height="14"
@@ -56,7 +58,12 @@ export function FeatureGroup({ feature, routes }: FeatureGroupProps) {
       >
         <div className="border-t border-border-default flex flex-col gap-px bg-border-default">
           {featureRoutes.map((route) => (
-            <RouteCard key={route.id} route={route} />
+            <RouteCard
+              key={route.id}
+              route={route}
+              snippet={snippets?.[route.id]}
+              snippetLoading={snippetLoading && !snippets?.[route.id]}
+            />
           ))}
         </div>
       </div>

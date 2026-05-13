@@ -125,7 +125,7 @@ export default function DocsDetailPage() {
       </section>
 
       {/* Export bar */}
-      <div className="sticky top-0 z-20 flex items-center justify-end px-8 py-3 border-b border-border-default bg-bg-primary backdrop-blur-sm gap-2">
+      <div className="sticky top-[60px] z-40 flex items-center justify-end px-8 py-3 border-b border-border-default bg-bg-primary backdrop-blur-sm gap-2">
         <button
           onClick={handleCopyMarkdown}
           className="font-mono text-xs text-fg-secondary hover:text-fg-primary transition-all duration-200 border border-border-default px-3 py-1.5 hover:border-fg-primary"

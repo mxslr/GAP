@@ -19,15 +19,28 @@ const STATUS_COLORS: Record<RouteStatus, string> = {
   documented: '#60A5FA',
 }
 
+export interface SnippetData {
+  fetchSnippet: string
+  tsTypes: string
+  description: string
+}
+
 interface RouteCardProps {
   route: AnalyzedRoute
+  snippet?: SnippetData
+  snippetLoading?: boolean
   defaultOpen?: boolean
 }
 
-export function RouteCard({ route, defaultOpen = false }: RouteCardProps) {
+export function RouteCard({ route, snippet, snippetLoading = false, defaultOpen = false }: RouteCardProps) {
   const [open, setOpen] = useState(defaultOpen)
   const methodColor = METHOD_COLORS[route.method]
   const statusColor = STATUS_COLORS[route.status]
+
+  const description = snippet?.description ?? route.description
+  const fetchSnippet = snippet?.fetchSnippet ?? route.fetchSnippet
+  const tsTypes = snippet?.tsTypes ?? route.tsTypes
+  const hasContent = description || fetchSnippet || tsTypes
 
   return (
     <div
@@ -43,12 +56,7 @@ export function RouteCard({ route, defaultOpen = false }: RouteCardProps) {
         {/* Method badge */}
         <span
           className="font-mono text-xs px-2 py-0.5 border shrink-0"
-          style={{
-            borderRadius: 0,
-            borderColor: methodColor,
-            color: methodColor,
-            letterSpacing: '0.05em',
-          }}
+          style={{ borderRadius: 0, borderColor: methodColor, color: methodColor, letterSpacing: '0.05em' }}
         >
           {route.method}
         </span>
@@ -58,15 +66,20 @@ export function RouteCard({ route, defaultOpen = false }: RouteCardProps) {
           {route.path}
         </span>
 
+        {/* Snippet loading indicator on header */}
+        {snippetLoading && !snippet && (
+          <span
+            className="font-mono text-xs text-fg-tertiary shrink-0"
+            style={{ letterSpacing: '0.05em' }}
+          >
+            generating...
+          </span>
+        )}
+
         {/* Status pill */}
         <span
           className="font-mono text-xs px-2 py-0.5 border shrink-0"
-          style={{
-            borderRadius: 0,
-            borderColor: statusColor,
-            color: statusColor,
-            letterSpacing: '0.05em',
-          }}
+          style={{ borderRadius: 0, borderColor: statusColor, color: statusColor, letterSpacing: '0.05em' }}
         >
           {route.status}
         </span>
@@ -84,31 +97,44 @@ export function RouteCard({ route, defaultOpen = false }: RouteCardProps) {
         </svg>
       </button>
 
-      {/* Body — CSS max-height accordion */}
+      {/* Body */}
       <div
         style={{
-          maxHeight: open ? '1000px' : '0',
+          maxHeight: open ? '1200px' : '0',
           overflow: 'hidden',
           transition: 'max-height 300ms ease',
         }}
       >
         <div className="px-4 pb-4 flex flex-col gap-3 border-t border-border-default">
-          {route.description && (
-            <p className="font-body text-sm text-fg-secondary pt-3">{route.description}</p>
+          {description && (
+            <p className="font-body text-sm text-fg-secondary pt-3">{description}</p>
           )}
 
-          {route.fetchSnippet && (
-            <CodeBlock code={route.fetchSnippet} label="fetch snippet" />
-          )}
-
-          {route.tsTypes && (
-            <CodeBlock code={route.tsTypes} label="typescript types" />
-          )}
-
-          {!route.description && !route.fetchSnippet && !route.tsTypes && (
-            <p className="font-mono text-xs text-fg-secondary pt-3 lowercase" style={{ letterSpacing: '0.05em' }}>
-              no additional details
-            </p>
+          {snippetLoading && !snippet ? (
+            /* Skeleton while snippet is being generated */
+            <div className="pt-3 flex flex-col gap-2">
+              <span
+                className="font-mono text-xs text-fg-tertiary lowercase"
+                style={{ letterSpacing: '0.05em' }}
+              >
+                generating snippet...
+              </span>
+              <div className="skeleton-snippet" />
+            </div>
+          ) : (
+            <>
+              {fetchSnippet && (
+                <CodeBlock code={fetchSnippet} label="fetch snippet" />
+              )}
+              {tsTypes && (
+                <CodeBlock code={tsTypes} label="typescript types" />
+              )}
+              {!hasContent && (
+                <p className="font-mono text-xs text-fg-secondary pt-3 lowercase" style={{ letterSpacing: '0.05em' }}>
+                  no additional details
+                </p>
+              )}
+            </>
           )}
         </div>
       </div>

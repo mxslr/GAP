@@ -5,28 +5,17 @@ import { ApiDocPanel } from '../../components/ApiDocPanel'
 import { InputMethodTabs } from '../../components/InputMethodTabs'
 import { GitHubInput } from '../../components/GitHubInput'
 import { FolderDropZone } from '../../components/FolderDropZone'
+import { Spinner } from '../../components/Spinner'
 import type { InputMethod } from '../../components/InputMethodTabs'
-import type { RepoContent } from '../../lib/types'
+import type { RepoContent, AnalyzedRoute } from '../../lib/types'
 
 const STORAGE_KEY = 'gap:docs-generator:last-result'
 
 function repoContentToCode(content: RepoContent): string {
-  return content.files
-    .map((f) => `// === FILE: ${f.path} ===\n${f.content}`)
-    .join('\n\n')
+  return content.files.map((f) => `// === FILE: ${f.path} ===\n${f.content}`).join('\n\n')
 }
 
-function getStepMessages(method: InputMethod): string[] {
-  const base = [
-    'parsing routes...',
-    'classifying features...',
-    'enriching with examples...',
-    'building documentation...',
-  ]
-  if (method === 'github') return ['fetching repository...', ...base]
-  if (method === 'folder') return ['reading folder...', ...base]
-  return base
-}
+type Phase = 'idle' | 'loading' | 'streaming' | 'complete' | 'error'
 
 interface DocResult {
   markdown: string
@@ -34,24 +23,24 @@ interface DocResult {
   analysisId: string | null
 }
 
-interface StoredResult extends DocResult {
-  timestamp: string
-}
+interface StoredResult extends DocResult { timestamp: string }
 
 export default function DocsGeneratorPage() {
   const [inputMethod, setInputMethod] = useState<InputMethod>('paste')
   const [code, setCode] = useState('')
   const [githubUrl, setGithubUrl] = useState('')
   const [folderContent, setFolderContent] = useState<RepoContent | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [stepIndex, setStepIndex] = useState(0)
+
+  const [phase, setPhase] = useState<Phase>('idle')
+  const [statusMessage, setStatusMessage] = useState('')
+  const [routeCount, setRouteCount] = useState<number | null>(null)
   const [result, setResult] = useState<DocResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cachedAt, setCachedAt] = useState<string | null>(null)
   const [fromCache, setFromCache] = useState(false)
   const [copyMarkdownLabel, setCopyMarkdownLabel] = useState('copy markdown')
 
-  const stepTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
 
   useEffect(() => {
     try {
@@ -61,6 +50,7 @@ export default function DocsGeneratorPage() {
         setResult({ markdown: stored.markdown, openapi: stored.openapi, analysisId: stored.analysisId })
         setCachedAt(stored.timestamp)
         setFromCache(true)
+        setPhase('complete')
       }
     } catch {
       // ignore parse errors
@@ -68,78 +58,122 @@ export default function DocsGeneratorPage() {
   }, [])
 
   function canGenerate(): boolean {
-    if (loading) return false
+    if (phase === 'loading' || phase === 'streaming') return false
     if (inputMethod === 'github') return githubUrl.trim().length > 0
     if (inputMethod === 'folder') return folderContent !== null
     return code.trim().length > 0
   }
 
-  function startStepCycle(method: InputMethod) {
-    const msgs = getStepMessages(method)
-    setStepIndex(0)
-    stepTimer.current = setInterval(() => {
-      setStepIndex((i) => (i + 1) % msgs.length)
-    }, 5000)
-  }
-
-  function stopStepCycle() {
-    if (stepTimer.current) {
-      clearInterval(stepTimer.current)
-      stepTimer.current = null
-    }
-  }
-
   async function handleGenerate() {
     if (!canGenerate()) return
+
+    // Abort any running stream
+    if (readerRef.current) {
+      try { readerRef.current.cancel() } catch { /* ignore */ }
+      readerRef.current = null
+    }
+
     setError(null)
     setResult(null)
     setFromCache(false)
     setCachedAt(null)
-    setLoading(true)
-    startStepCycle(inputMethod)
+    setRouteCount(null)
+    setPhase('loading')
+    setStatusMessage('starting...')
+
+    let requestBody: Record<string, unknown>
+    if (inputMethod === 'github') {
+      requestBody = { inputMethod: 'github', backendGithubUrl: githubUrl }
+    } else if (inputMethod === 'folder' && folderContent) {
+      requestBody = { inputMethod: 'folder', backendCode: repoContentToCode(folderContent) }
+    } else {
+      requestBody = { backendCode: code }
+    }
 
     try {
-      let requestBody: Record<string, unknown>
-
-      if (inputMethod === 'github') {
-        requestBody = { inputMethod: 'github', backendGithubUrl: githubUrl }
-      } else if (inputMethod === 'folder' && folderContent) {
-        requestBody = { inputMethod: 'folder', backendCode: repoContentToCode(folderContent) }
-      } else {
-        requestBody = { backendCode: code }
-      }
-
-      const res = await fetch('/api/docs', {
+      const response = await fetch('/api/docs/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       })
 
-      const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data.error ?? 'Generation failed')
+      if (!response.ok || !response.body) {
+        const err = await response.json().catch(() => ({ error: 'generation failed' }))
+        setError((err as { error?: string }).error ?? 'generation failed')
+        setPhase('error')
+        return
       }
 
-      const doc: DocResult = {
-        markdown: data.markdown,
-        openapi: data.openapi ?? null,
-        analysisId: data.analysisId ?? null,
+      const reader = response.body.getReader()
+      readerRef.current = reader
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const messages = buffer.split('\n\n')
+        buffer = messages.pop() ?? ''
+
+        for (const msg of messages) {
+          const eventMatch = msg.match(/^event: (\w+)/m)
+          const dataMatch = msg.match(/^data: (.+)/m)
+          if (!eventMatch || !dataMatch) continue
+
+          const event = eventMatch[1]
+          let data: Record<string, unknown>
+          try { data = JSON.parse(dataMatch[1]) } catch { continue }
+
+          switch (event) {
+            case 'status':
+              setStatusMessage((data.message as string) ?? '')
+              if (phase !== 'streaming') setPhase('loading')
+              break
+
+            case 'routes': {
+              const count = (data.total as number) ?? (data.routes as AnalyzedRoute[])?.length ?? 0
+              setRouteCount(count)
+              setPhase('streaming')
+              break
+            }
+
+            case 'docs': {
+              const doc: DocResult = {
+                markdown: data.markdown as string,
+                openapi: (data.openapi as object | null) ?? null,
+                analysisId: (data.analysisId as string | null) ?? null,
+              }
+              setResult(doc)
+              try {
+                const stored: StoredResult = { ...doc, timestamp: new Date().toISOString() }
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(stored))
+              } catch {
+                // QuotaExceededError — skip silently
+              }
+              break
+            }
+
+            case 'done':
+              setPhase('complete')
+              break
+
+            case 'error':
+              setError((data.message as string) ?? 'generation failed')
+              setPhase('error')
+              break
+          }
+        }
       }
 
-      setResult(doc)
+      setPhase((p) => p === 'streaming' ? 'complete' : p)
 
-      try {
-        const stored: StoredResult = { ...doc, timestamp: new Date().toISOString() }
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(stored))
-      } catch {
-        // QuotaExceededError — skip persistence silently
-      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      setError(err instanceof Error ? err.message : 'network error')
+      setPhase('error')
     } finally {
-      stopStepCycle()
-      setLoading(false)
+      readerRef.current = null
     }
   }
 
@@ -147,20 +181,15 @@ export default function DocsGeneratorPage() {
     setResult(null)
     setFromCache(false)
     setCachedAt(null)
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      // ignore
-    }
+    setPhase('idle')
+    try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
   }
 
   function downloadBlob(content: string, filename: string, mime: string) {
     const blob = new Blob([content], { type: mime })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
+    a.href = url; a.download = filename; a.click()
     URL.revokeObjectURL(url)
   }
 
@@ -170,24 +199,12 @@ export default function DocsGeneratorPage() {
       await navigator.clipboard.writeText(result.markdown)
       setCopyMarkdownLabel('copied!')
       setTimeout(() => setCopyMarkdownLabel('copy markdown'), 1500)
-    } catch {
-      // clipboard not available
-    }
+    } catch { /* clipboard unavailable */ }
   }
 
-  function handleDownloadMd() {
-    if (!result) return
-    downloadBlob(result.markdown, 'api-docs.md', 'text/markdown')
-  }
-
-  function handleDownloadOpenApi() {
-    if (!result?.openapi) return
-    downloadBlob(JSON.stringify(result.openapi, null, 2), 'openapi.json', 'application/json')
-  }
-
-  const stepMessages = getStepMessages(inputMethod)
-  const showResult = result !== null
-  const showInput = !loading && !showResult
+  const showInput = phase === 'idle' || phase === 'error'
+  const showResult = result !== null && (phase === 'streaming' || phase === 'complete')
+  const isGenerating = phase === 'loading' || phase === 'streaming'
 
   return (
     <main className="min-h-screen bg-bg-primary">
@@ -217,13 +234,8 @@ export default function DocsGeneratorPage() {
             <InputMethodTabs activeMethod={inputMethod} onMethodChange={setInputMethod} />
 
             {inputMethod === 'github' && (
-              <GitHubInput
-                label="backend repository"
-                value={githubUrl}
-                onChange={setGithubUrl}
-              />
+              <GitHubInput label="backend repository" value={githubUrl} onChange={setGithubUrl} />
             )}
-
             {inputMethod === 'folder' && (
               <FolderDropZone
                 label="backend folder"
@@ -232,27 +244,38 @@ export default function DocsGeneratorPage() {
                 skippedCount={folderContent?.skippedFiles}
               />
             )}
-
             {inputMethod === 'paste' && (
-              <>
-                <div className="flex flex-col gap-1.5">
-                  <label className="block font-mono text-xs text-fg-secondary uppercase tracking-widest">
-                    backend code
-                  </label>
-                  <p className="font-mono text-xs text-fg-secondary" style={{ letterSpacing: '0.05em' }}>
-                    supports express, fastapi, laravel
-                  </p>
-                  <textarea
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    rows={20}
-                    placeholder="// paste your backend routes here&#10;app.get('/api/users', getUsers)&#10;app.post('/api/auth/login', login)"
-                    className="w-full bg-bg-secondary border border-border-default text-fg-primary font-mono text-sm px-4 py-3 focus:outline-none focus:border-fg-primary transition-colors duration-200 resize-y placeholder-fg-tertiary"
-                    spellCheck={false}
-                    style={{ borderRadius: 0 }}
-                  />
-                </div>
-              </>
+              <div className="flex flex-col gap-1.5">
+                <label className="block font-mono text-xs text-fg-secondary uppercase tracking-widest">
+                  backend code
+                </label>
+                <p className="font-mono text-xs text-fg-secondary" style={{ letterSpacing: '0.05em' }}>
+                  supports express, fastapi, laravel
+                </p>
+                <textarea
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  rows={20}
+                  placeholder="// paste your backend routes here&#10;app.get('/api/users', getUsers)&#10;app.post('/api/auth/login', login)"
+                  className="w-full bg-bg-secondary border border-border-default text-fg-primary font-mono text-sm px-4 py-3 focus:outline-none focus:border-fg-primary transition-colors duration-200 resize-y placeholder-fg-tertiary"
+                  spellCheck={false}
+                  style={{ borderRadius: 0 }}
+                />
+              </div>
+            )}
+
+            {phase === 'error' && error && (
+              <div className="border border-status-orphan p-4" style={{ borderRadius: 0 }}>
+                <p className="font-mono text-xs text-status-orphan" style={{ letterSpacing: '0.05em' }}>
+                  error: {error}
+                </p>
+                <button
+                  onClick={() => { setError(null); setPhase('idle') }}
+                  className="font-mono text-xs text-fg-secondary mt-3 hover:text-fg-primary transition-colors duration-200 underline underline-offset-2"
+                >
+                  try again
+                </button>
+              </div>
             )}
 
             <div className="flex items-center gap-4">
@@ -276,46 +299,36 @@ export default function DocsGeneratorPage() {
         </section>
       )}
 
-      {/* Error */}
-      {error && !loading && (
-        <section className="px-8 pb-6">
-          <div className="max-w-3xl border border-status-orphan p-4" style={{ borderRadius: 0 }}>
-            <p className="font-mono text-xs text-status-orphan" style={{ letterSpacing: '0.05em' }}>
-              error: {error}
-            </p>
-            <button
-              onClick={() => { setError(null) }}
-              className="font-mono text-xs text-fg-secondary mt-3 hover:text-fg-primary transition-colors duration-200 underline underline-offset-2"
-            >
-              try again
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* Loading state */}
-      {loading && (
+      {/* Loading state — full screen only before routes arrive */}
+      {isGenerating && !showResult && (
         <section className="flex flex-col items-center justify-center py-32 stagger-section animate-delay-100">
           <div
             className="w-8 h-8 border border-fg-primary animate-spin mb-8"
             style={{ animationTimingFunction: 'linear', borderRadius: 0 }}
           />
           <p
-            className="font-mono text-sm text-fg-secondary"
+            key={statusMessage}
+            className="font-mono text-sm text-fg-secondary animate-fade-in"
             style={{ letterSpacing: '0.08em', minHeight: '1.5rem' }}
           >
-            {stepMessages[stepIndex]}
+            {statusMessage}
           </p>
-          <div className="flex gap-1.5 mt-6">
-            {stepMessages.map((_, i) => (
-              <div
-                key={i}
-                className={`w-1.5 h-1.5 transition-colors duration-300 ${i === stepIndex ? 'bg-fg-primary' : 'bg-border-default'}`}
-                style={{ borderRadius: 0 }}
-              />
-            ))}
-          </div>
+          {routeCount !== null && (
+            <p className="font-mono text-xs text-fg-tertiary mt-2" style={{ letterSpacing: '0.05em' }}>
+              {routeCount} routes detected
+            </p>
+          )}
         </section>
+      )}
+
+      {/* Status bar while docs are being generated (after routes known) */}
+      {isGenerating && routeCount !== null && !showResult && (
+        <div className="flex items-center gap-3 px-8 py-3 border-b border-border-default bg-bg-secondary">
+          <Spinner size={12} />
+          <span className="font-mono text-xs text-fg-secondary lowercase" style={{ letterSpacing: '0.08em' }}>
+            {statusMessage} — {routeCount} routes detected
+          </span>
+        </div>
       )}
 
       {/* Cache banner */}
@@ -336,10 +349,10 @@ export default function DocsGeneratorPage() {
 
       {/* Export bar */}
       {showResult && (
-        <div className="sticky top-0 z-20 flex items-center justify-between px-8 py-3 border-b border-border-default bg-bg-primary backdrop-blur-sm">
+        <div className="sticky top-[60px] z-40 flex items-center justify-between px-8 py-3 border-b border-border-default bg-bg-primary backdrop-blur-sm">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { setResult(null); setFromCache(false); setCachedAt(null) }}
+              onClick={() => { setResult(null); setFromCache(false); setCachedAt(null); setPhase('idle') }}
               className="font-mono text-xs text-fg-secondary hover:text-fg-primary transition-colors duration-200 border border-border-default px-3 py-1.5 hover:border-fg-primary"
               style={{ borderRadius: 0 }}
             >
@@ -355,18 +368,17 @@ export default function DocsGeneratorPage() {
               {copyMarkdownLabel}
             </button>
             <button
-              onClick={handleDownloadMd}
+              onClick={() => result && downloadBlob(result.markdown, 'api-docs.md', 'text/markdown')}
               className="font-mono text-xs text-fg-secondary hover:text-fg-primary transition-all duration-200 border border-border-default px-3 py-1.5 hover:border-fg-primary"
               style={{ borderRadius: 0 }}
             >
               download .md
             </button>
             <button
-              onClick={handleDownloadOpenApi}
+              onClick={() => result?.openapi && downloadBlob(JSON.stringify(result.openapi, null, 2), 'openapi.json', 'application/json')}
               disabled={!result?.openapi}
               className="font-mono text-xs transition-all duration-200 border px-3 py-1.5 disabled:opacity-30 disabled:cursor-not-allowed border-border-default text-fg-secondary hover:border-fg-primary hover:text-fg-primary disabled:hover:border-border-default disabled:hover:text-fg-secondary"
               style={{ borderRadius: 0 }}
-              aria-disabled={!result?.openapi}
             >
               download openapi.json
             </button>
@@ -374,7 +386,7 @@ export default function DocsGeneratorPage() {
         </div>
       )}
 
-      {/* Result — two-column ApiDocPanel */}
+      {/* Result panel */}
       {showResult && result && (
         <div className="stagger-section animate-delay-100">
           <ApiDocPanel markdown={result.markdown} openapi={result.openapi} />

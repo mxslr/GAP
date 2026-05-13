@@ -1,17 +1,21 @@
 import { GoogleGenerativeAI, GenerativeModel, SchemaType } from '@google/generative-ai'
 
-const apiKey = process.env.GEMINI_API_KEY
-if (!apiKey) {
-  throw new Error('GEMINI_API_KEY environment variable is not set')
-}
+let geminiClient: GoogleGenerativeAI | null = null
 
-const gemini = new GoogleGenerativeAI(apiKey)
+function getClient(): GoogleGenerativeAI {
+  if (!geminiClient) {
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) throw new Error('GEMINI_API_KEY environment variable is not set')
+    geminiClient = new GoogleGenerativeAI(apiKey)
+  }
+  return geminiClient
+}
 
 export function getModel(modelName: string = 'gemini-2.0-flash'): GenerativeModel {
-  return gemini.getGenerativeModel({ model: modelName })
+  return getClient().getGenerativeModel({ model: modelName })
 }
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   let lastError: unknown
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -20,13 +24,14 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
       lastError = err
       const isRateLimit =
         err instanceof Error &&
-        (err.message.includes('429') || err.message.toLowerCase().includes('rate limit'))
+        (err.message.includes('429') || err.message.toLowerCase().includes('rate limit') || err.message.toLowerCase().includes('quota'))
 
       if (!isRateLimit || attempt === maxRetries) {
         throw err
       }
 
-      const delayMs = (attempt + 1) * 1000
+      const delayMs = Math.pow(2, attempt) * 2000 // 2s, 4s, 8s, 16s
+      console.log(`[gemini] rate limited, retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`)
       await new Promise((resolve) => setTimeout(resolve, delayMs))
     }
   }

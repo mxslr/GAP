@@ -1,5 +1,5 @@
-import { generateJSON } from '../gemini'
-import type { FileTreeEntry, MonorepoLayout } from '../types'
+import { generateJSON } from '../ai-provider'
+import type { FileEntry, FileTreeEntry, MonorepoLayout } from '../types'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -35,6 +35,57 @@ const FRONTEND_NPM_DEPS = [
 ]
 
 const WRAPPER_FOLDER_NAMES = new Set(['apps', 'packages'])
+
+// ── FileEntry[] helpers ───────────────────────────────────────────────────
+
+/**
+ * Parse a combined code string (produced by filesToCode) back into FileEntry[].
+ * Format expected: "// === FILE: path ===\n<content>"
+ */
+export function parseCodeToFileEntries(combinedCode: string): FileEntry[] {
+  const FILE_SEP_RE = /^\/\/ === FILE: (.+?) ===$/gm
+  const files: FileEntry[] = []
+  let prevPath = ''
+  let prevEnd = 0
+
+  FILE_SEP_RE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = FILE_SEP_RE.exec(combinedCode)) !== null) {
+    if (prevPath) {
+      const content = combinedCode.slice(prevEnd, match.index).trim()
+      files.push({ path: prevPath, content, size: content.length })
+    }
+    prevPath = match[1].trim()
+    prevEnd = match.index + match[0].length
+  }
+  if (prevPath) {
+    const content = combinedCode.slice(prevEnd).trim()
+    files.push({ path: prevPath, content, size: content.length })
+  }
+  return files
+}
+
+/**
+ * Convert FileEntry[] (real repo files) into FileTreeEntry[] for heuristic analysis.
+ * Derives directory entries from file paths.
+ */
+function fileEntriesToTree(files: FileEntry[]): FileTreeEntry[] {
+  const entries: FileTreeEntry[] = []
+  const dirs = new Set<string>()
+
+  for (const file of files) {
+    entries.push({ path: file.path, type: 'file', content: file.content })
+    const parts = file.path.split('/')
+    for (let i = 1; i < parts.length; i++) {
+      const dirPath = parts.slice(0, i).join('/')
+      if (!dirs.has(dirPath)) {
+        dirs.add(dirPath)
+        entries.push({ path: dirPath, type: 'dir' })
+      }
+    }
+  }
+  return entries
+}
 
 // ── Text tree parser (tasks 2.1–2.3) ─────────────────────────────────────
 
@@ -140,7 +191,7 @@ function classifyByIndicatorFiles(entries: FileTreeEntry[]): {
     filesByParent.set(parent, bucket)
   }
 
-  for (const [parent, files] of filesByParent) {
+  for (const [parent, files] of Array.from(filesByParent)) {
     const prefix = parent ? parent + '/' : ''
 
     for (const file of files) {
@@ -187,8 +238,8 @@ function mergeHeuristics(
   const backendSet = new Set([...byName.backendPaths, ...byFile.backendPaths])
   const frontendSet = new Set([...byName.frontendPaths, ...byFile.frontendPaths])
 
-  const backendPaths = [...backendSet]
-  const frontendPaths = [...frontendSet]
+  const backendPaths = Array.from(backendSet)
+  const frontendPaths = Array.from(frontendSet)
 
   // Any indicator file evidence → 'high'; folder name only → 'medium'; nothing → 'low'
   let confidence: 'high' | 'medium' | 'low' = 'low'
@@ -287,13 +338,19 @@ function isNextjsFullstack(entries: FileTreeEntry[]): boolean {
 
 // ── Main exported function (tasks 5.1–5.5) ───────────────────────────────
 
+function normalizeToTreeEntries(input: FileEntry[] | FileTreeEntry[]): FileTreeEntry[] {
+  if (input.length === 0) return []
+  // Distinguish by presence of 'size' (FileEntry) vs 'type' (FileTreeEntry)
+  if ('size' in input[0]) {
+    return fileEntriesToTree(input as FileEntry[])
+  }
+  return input as FileTreeEntry[]
+}
+
 export async function detectMonorepoLayout(
-  fileTree: string | FileTreeEntry[]
+  input: FileEntry[] | FileTreeEntry[]
 ): Promise<MonorepoLayout> {
-  // Normalize input
-  const entries: FileTreeEntry[] = typeof fileTree === 'string'
-    ? parseTextTree(fileTree)
-    : fileTree
+  const entries = normalizeToTreeEntries(input)
 
   // Next.js full-stack shortcut — BE and FE share root
   if (isNextjsFullstack(entries)) {
